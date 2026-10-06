@@ -44,6 +44,27 @@
     'cs': '参数估计', 'zdlr': '最大似然'
   };
 
+  // Check In-App Browser (e.g. WeChat, QQ)
+  function checkInAppBrowser() {
+    const ua = navigator.userAgent.toLowerCase();
+    const isWeChat = ua.includes('micromessenger');
+    const isQQ = ua.includes('qq/') && !ua.includes('mqqbrowser');
+    
+    if (isWeChat || isQQ) {
+      if (statusBanner) {
+        statusBanner.style.display = 'flex';
+        statusBanner.className = 'status-banner banner-math2';
+        statusBanner.style.background = '#fef3c7';
+        statusBanner.style.color = '#92400e';
+        statusBanner.style.border = '1px solid #f59e0b';
+        statusBanner.innerHTML = `
+          <span>⚠️</span>
+          <div><strong>当前在微信/QQ内访问</strong>：微信对大文件在线解析有限制，建议点击右上角 <strong>【···】</strong> 选择 <strong>【在浏览器打开】</strong>（推荐使用 Safari、Chrome 或手机自带系统浏览器）。</div>
+        `;
+      }
+    }
+  }
+
   // Initialize
   function init() {
     if (!state.data) {
@@ -53,6 +74,7 @@
 
     initTheme();
     bindEvents();
+    checkInAppBrowser();
     renderContent();
   }
 

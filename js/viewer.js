@@ -1,17 +1,19 @@
 /**
- * Mobile-First PDF Reader with Dual Rendering Engines & Cross-Reference Shuttle Capsule
+ * Universal Mobile PDF Reader - Cross-Browser Compatible Edition
+ * Compatible with WeChat, QQ, Quark, UC, Safari, Chrome, Edge
  */
 
 (function () {
   'use strict';
 
-  // Configure PDF.js worker with absolute URL
+  // Configure PDF.js worker
   if (window.pdfjsLib) {
     try {
       const workerUrl = new URL('lib/pdfjs/pdf.worker.min.js', window.location.href).href;
       pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
     } catch (e) {
-      console.warn('Worker configuration exception:', e);
+      console.warn('Worker URL resolution failed, using fallback:', e);
+      pdfjsLib.GlobalWorkerOptions.workerSrc = 'lib/pdfjs/pdf.worker.js';
     }
   }
 
@@ -48,7 +50,7 @@
   let currentScale = 1.0;
   let isRendering = false;
   let pageRenderingQueue = null;
-  let loadTimeoutTimer = null;
+  let slowWarningTimer = null;
 
   // DOM Elements
   const canvas = document.getElementById('pdf-canvas');
@@ -78,10 +80,27 @@
   const btnZoomFit = document.getElementById('btn-zoom-fit');
   const btnNativeOpen = document.getElementById('btn-native-open');
 
+  // Check In-App Browser (e.g. WeChat, QQ)
+  function checkInAppBrowser() {
+    const ua = navigator.userAgent.toLowerCase();
+    const isWeChat = ua.includes('micromessenger');
+    const isQQ = ua.includes('qq/') && !ua.includes('mqqbrowser');
+    const isQuark = ua.includes('quark');
+    
+    if (isWeChat || isQQ) {
+      if (loadingHint) {
+        loadingHint.innerHTML = '⚠️ 提示：在微信/QQ内打开大文件受限，如遇白屏，请点击右上角 <strong>【···】</strong> 选择 <strong>【在浏览器打开】</strong>';
+        loadingHint.style.color = '#fbbf24';
+      }
+    }
+  }
+
   // Initialize
   async function init() {
     bindEvents();
+    checkInAppBrowser();
     updateModeDisplay();
+
     if (viewMode === 'native') {
       renderNativeMode();
     } else {
@@ -91,17 +110,21 @@
 
   // Load PDF Document in Canvas mode
   async function loadDocument(bookKey, targetPage) {
-    showLoading(true, '正在连接云端原书...');
+    showLoading(true, '正在加载原书...');
     startSlowTimer();
 
     try {
+      if (!window.pdfjsLib) {
+        throw new Error('PDF.js 未正确加载，当前浏览器可能拦截了脚本');
+      }
+
       if (!pdfDocs[bookKey]) {
         const loadingTask = pdfjsLib.getDocument({
           url: pdfPaths[bookKey],
           cMapPacked: true
         });
 
-        // Track download progress in real-time
+        // Track real-time download progress
         loadingTask.onProgress = function (progress) {
           if (progress.total > 0) {
             const percent = Math.min(100, Math.round((progress.loaded / progress.total) * 100));
@@ -131,13 +154,14 @@
     } catch (err) {
       console.error('PDF load error:', err);
       clearSlowTimer();
-      showLoading(true, '云端加载超时或网络受限');
+      showLoading(true, '在线渲染受限或网络缓慢');
       if (btnSlowFallback) {
         btnSlowFallback.style.display = 'inline-block';
         btnSlowFallback.textContent = '🚀 点击切换为手机原生模式秒开此页';
       }
       if (loadingHint) {
-        loadingHint.textContent = 'GitHub 节点在国内移动端偶有卡顿，原生模式可直接秒开';
+        loadingHint.innerHTML = '部分手机浏览器（微信/夸克）拦截在线渲染，推荐点击上方按钮或用 <strong>Chrome/Safari/Edge</strong> 打开';
+        loadingHint.style.color = '#f87171';
       }
     } finally {
       if (currentPdfDoc) {
@@ -146,7 +170,7 @@
     }
   }
 
-  // Render Page on Canvas
+  // Render Page on Canvas with Universal HiDPI scale
   async function renderPage(pageNum) {
     if (isRendering) {
       pageRenderingQueue = pageNum;
@@ -162,19 +186,17 @@
       const unscaledViewport = page.getViewport({ scale: 1.0 });
       let autoScale = (containerWidth / unscaledViewport.width) * currentScale;
 
+      // Universal Retina scaling without context matrix transforms
       const outputScale = window.devicePixelRatio || 1;
-      const viewport = page.getViewport({ scale: autoScale });
+      const viewport = page.getViewport({ scale: autoScale * outputScale });
 
-      canvas.width = Math.floor(viewport.width * outputScale);
-      canvas.height = Math.floor(viewport.height * outputScale);
-      canvas.style.width = Math.floor(viewport.width) + "px";
-      canvas.style.height = Math.floor(viewport.height) + "px";
-
-      const transform = outputScale !== 1 ? [outputScale, 0, 0, outputScale, 0, 0] : null;
+      canvas.width = Math.floor(viewport.width);
+      canvas.height = Math.floor(viewport.height);
+      canvas.style.width = Math.floor(viewport.width / outputScale) + "px";
+      canvas.style.height = Math.floor(viewport.height / outputScale) + "px";
 
       const renderContext = {
         canvasContext: ctx,
-        transform: transform,
         viewport: viewport
       };
 
@@ -200,14 +222,15 @@
     }
   }
 
-  // Native Mode Rendering
+  // Native Mode Rendering (Pure System Iframe)
   function renderNativeMode() {
     showLoading(false);
-    canvas.style.display = 'none';
-    nativeFrame.style.display = 'block';
-
-    const targetUrl = `${pdfPaths[currentBook]}#page=${currentPage}`;
-    nativeFrame.src = targetUrl;
+    if (canvas) canvas.style.display = 'none';
+    if (nativeFrame) {
+      nativeFrame.style.display = 'block';
+      const targetUrl = `${pdfPaths[currentBook]}#page=${currentPage}`;
+      nativeFrame.src = targetUrl;
+    }
 
     totalPages = currentBook === 'lecture' ? 1105 : 1524;
     totalPagesEl.textContent = `/ ${totalPages}`;
@@ -218,11 +241,11 @@
     updateShuttleCapsule();
 
     if (btnNativeOpen) {
-      btnNativeOpen.href = targetUrl;
+      btnNativeOpen.href = `${pdfPaths[currentBook]}#page=${currentPage}`;
     }
   }
 
-  // Switch between Canvas and Native Mode
+  // Toggle view mode
   function toggleViewMode() {
     if (viewMode === 'canvas') {
       viewMode = 'native';
@@ -233,8 +256,8 @@
       viewMode = 'canvas';
       localStorage.setItem('maki_view_mode', 'canvas');
       updateModeDisplay();
-      nativeFrame.style.display = 'none';
-      canvas.style.display = 'block';
+      if (nativeFrame) nativeFrame.style.display = 'none';
+      if (canvas) canvas.style.display = 'block';
       loadDocument(currentBook, currentPage);
     }
   }
@@ -245,24 +268,23 @@
     }
   }
 
-  // Timer to offer fallback if network is slow
   function startSlowTimer() {
     clearSlowTimer();
-    loadTimeoutTimer = setTimeout(() => {
+    slowWarningTimer = setTimeout(() => {
       if (btnSlowFallback) {
         btnSlowFallback.style.display = 'inline-block';
-        btnSlowFallback.href = `${pdfPaths[currentBook]}#page=${currentPage}`;
+        btnSlowFallback.textContent = `🚀 加载较慢？点击用手机原生极速打开此页 (P${currentPage})`;
       }
       if (loadingHint) {
-        loadingHint.textContent = '检测到云端下载较慢，可点击上方按钮直接用手机系统原生引擎秒开';
+        loadingHint.textContent = '提示：若当前网络加载较慢，建议点击上方按钮使用手机系统原生引擎秒开';
       }
-    }, 4500);
+    }, 3500);
   }
 
   function clearSlowTimer() {
-    if (loadTimeoutTimer) {
-      clearTimeout(loadTimeoutTimer);
-      loadTimeoutTimer = null;
+    if (slowWarningTimer) {
+      clearTimeout(slowWarningTimer);
+      slowWarningTimer = null;
     }
   }
 
@@ -278,7 +300,6 @@
     docTitleEl.textContent = docTitle ? `${docTitle} · ${bookLabel}` : bookLabel;
   }
 
-  // Update Floating Shuttle Capsule
   function updateShuttleCapsule() {
     if (!shuttleCapsule) return;
 
@@ -293,7 +314,7 @@
     }
   }
 
-  // Shuttle Switch Action
+  // Shuttle Switch
   async function switchShuttle() {
     const newBook = refBook;
     const newPage = refPage;
@@ -325,7 +346,6 @@
     }
   }
 
-  // Event bindings
   function bindEvents() {
     if (shuttleCapsule) {
       shuttleCapsule.addEventListener('click', switchShuttle);
@@ -342,7 +362,6 @@
       });
     }
 
-    // Prev / Next Page
     const prevAction = () => goToPage(currentPage - 1);
     const nextAction = () => goToPage(currentPage + 1);
 
@@ -351,7 +370,6 @@
     if (edgePrev) edgePrev.addEventListener('click', prevAction);
     if (edgeNext) edgeNext.addEventListener('click', nextAction);
 
-    // Page input
     if (pageInput) {
       pageInput.addEventListener('change', (e) => {
         const val = parseInt(e.target.value);
@@ -365,7 +383,6 @@
       });
     }
 
-    // Zoom buttons (Canvas mode)
     if (btnZoomIn) {
       btnZoomIn.addEventListener('click', () => {
         if (viewMode === 'native') return;
@@ -390,7 +407,6 @@
       });
     }
 
-    // Window resize
     let resizeTimer = null;
     window.addEventListener('resize', () => {
       clearTimeout(resizeTimer);
@@ -401,7 +417,6 @@
       }, 200);
     });
 
-    // Touch Swipe Left/Right Gesture on canvas
     if (canvas) {
       let touchStartX = 0;
       let touchEndX = 0;
