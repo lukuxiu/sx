@@ -377,43 +377,136 @@
   }
 
   // Render Search Results
-  function renderSearchResults() {
-    const rawQuery = state.searchQuery.trim().toLowerCase();
-    
-    // Resolve pinyin expansion if any
-    let query = rawQuery;
+  // Intelligent Tokenizer for Chinese Math Search Queries
+  function tokenizeQuery(rawInput) {
+    let q = rawInput.trim().toLowerCase();
+
+    // 1. Resolve pinyin shortcuts
     for (const [abbr, kw] of Object.entries(PINYIN_KEYWORDS)) {
-      if (rawQuery.includes(abbr)) {
-        query = query.replace(abbr, kw);
+      if (q.includes(abbr)) {
+        q = q.replace(new RegExp(abbr, 'g'), kw);
       }
     }
 
+    // 2. Normalize 2-digit years (e.g. 15数一 -> 2015 数一)
+    q = q.replace(/\b([012]\d)(?=\s*数[一二三])/g, '20$1');
+
+    // 3. Separate joint patterns like 2015数一9 -> 2015 数一 9
+    q = q.replace(/(\d{4}|\d{2})\s*(数[一二三])\s*\(?(\d+)\)?/g, '$1 $2 ($3) ');
+    q = q.replace(/(\d+)(数[一二三])/g, '$1 $2 ');
+    q = q.replace(/(数[一二三])(\d+)/g, '$1 ($2) ');
+
+    // 4. Normalize dots and spaces
+    q = q.replace(/[・·\s\(\)（）]+/g, ' ');
+
+    return q.split(/\s+/).filter(Boolean);
+  }
+
+  // Extract question number from exam string like "2015 ・数一・(9)" -> 9
+  function extractExamQNumber(examStr) {
+    const m = examStr.match(/\((\d+)\)/);
+    return m ? parseInt(m[1], 10) : 999;
+  }
+
+  // Render Search Results with Intelligent Tokenized Matching
+  function renderSearchResults() {
+    const rawQuery = state.searchQuery.trim();
+    if (!rawQuery) {
+      handleSearchOrFilter();
+      return;
+    }
+
+    const tokens = tokenizeQuery(rawQuery);
     const lectures = state.data.lectures;
     const questions = state.data.questions;
 
-    // 1. Matching Lectures
+    // Build fast lecture lookup map
+    const lectureMap = {};
+    lectures.forEach(l => { lectureMap[l.id] = l; });
+
+    // 1. Match Lectures
     const matchedLectures = lectures.filter(l => {
-      const matchText = (l.code + ' ' + l.title + ' ' + l.raw_title + ' ' + (l.summary || '')).toLowerCase();
-      return matchText.includes(query) || matchText.includes(rawQuery);
+      const blob = (l.code + ' ' + l.title + ' ' + l.raw_title + ' ' + (l.summary || '')).toLowerCase();
+      const cleanBlob = blob.replace(/[・·\s\(\)（）第讲]+/g, '');
+      return tokens.every(t => {
+        const cleanT = t.replace(/[・·\s\(\)（）第讲]+/g, '');
+        return blob.includes(t) || cleanBlob.includes(cleanT);
+      });
     });
 
-    // 2. Matching Subtopics
+    // 2. Match Subtopics
     const matchedSubtopics = [];
     lectures.forEach(l => {
       l.subtopics.forEach(sub => {
-        const matchText = (sub.code + ' ' + sub.title + ' ' + (sub.diff_reason || '')).toLowerCase();
-        if (matchText.includes(query) || matchText.includes(rawQuery)) {
+        const blob = (sub.code + ' ' + sub.title + ' ' + (sub.diff_reason || '') + ' ' + l.code + ' ' + l.title).toLowerCase();
+        const cleanBlob = blob.replace(/[・·\s\(\)（）]+/g, '');
+        const isMatch = tokens.every(t => {
+          const cleanT = t.replace(/[・·\s\(\)（）]+/g, '');
+          return blob.includes(t) || cleanBlob.includes(cleanT);
+        });
+        if (isMatch) {
           matchedSubtopics.push({ sub, lecture: l });
         }
       });
     });
 
-    // 3. Matching Questions
-    const matchedQuestions = questions.filter(q => {
-      const matchText = (q.code + ' ' + q.title + ' ' + q.exam).toLowerCase();
-      return matchText.includes(query) || matchText.includes(rawQuery);
+    // 3. Match Questions with Scoring & Chronological Sorting
+    const scoredQuestions = [];
+    tokens.forEach(t => t.toLowerCase());
+
+    questions.forEach(q => {
+      const lec = lectureMap[q.lecture_id] || {};
+      const rawBlob = `${q.code} 题${q.code} ${q.title} ${q.exam} ${lec.code || ''} ${lec.title || ''} 第${lec.id || ''}讲`.toLowerCase();
+      const cleanBlob = rawBlob.replace(/[・·\s\(\)（）第题]+/g, '');
+
+      let allMatched = true;
+      let score = 0;
+
+      for (let i = 0; i < tokens.length; i++) {
+        const t = tokens[i];
+        const cleanT = t.replace(/[・·\s\(\)（）第题]+/g, '');
+        
+        if (rawBlob.includes(t) || cleanBlob.includes(cleanT)) {
+          score += 10;
+          // Exact question number match bonus e.g. (9)
+          if (cleanT && (q.exam.includes(`(${cleanT})`) || q.exam.includes(`・${cleanT}・`))) {
+            score += 150;
+          }
+          // Exact question code match bonus e.g. 3.1
+          if (cleanT && q.code === cleanT) {
+            score += 120;
+          }
+          // Title exact match bonus
+          if (q.title && q.title.toLowerCase().includes(t)) {
+            score += 40;
+          }
+        } else {
+          allMatched = false;
+          break;
+        }
+      }
+
+      if (allMatched) {
+        scoredQuestions.push({
+          q,
+          lecture: lec,
+          score,
+          examQNum: extractExamQNumber(q.exam)
+        });
+      }
     });
 
+    // Sort questions: by score descending, then by exam question number ascending
+    scoredQuestions.sort((a, b) => {
+      if (b.score !== a.score) {
+        return b.score - a.score;
+      }
+      return a.examQNum - b.examQNum;
+    });
+
+    const matchedQuestions = scoredQuestions.map(item => item.q);
+
+    // Build Output HTML
     let html = `
       <div class="search-stats-bar">
         找到 <strong>${matchedLectures.length}</strong> 讲 · 
@@ -427,28 +520,77 @@
         <div class="empty-state">
           <div class="empty-icon">🍃</div>
           <div>未找到与 “${state.searchQuery}” 匹配的内容</div>
-          <div style="font-size:12px;margin-top:6px;color:var(--text-muted);">可尝试搜索：海涅、泰勒、3.1、L10、2022数一 等</div>
+          <div style="font-size:12px;margin-top:6px;color:var(--text-muted);">
+            支持灵活搜索：<br>
+            • 年份与题号：<code>2015数一9</code> 或 <code>2015 数一 18</code><br>
+            • 概念与考点：<code>海涅</code> 或 <code>泰勒展开</code><br>
+            • 题号编号：<code>3.1</code> 或 <code>L10</code>
+          </div>
         </div>
       `;
       searchResultsArea.innerHTML = html;
       return;
     }
 
-    // Render Matched Lectures
-    if (matchedLectures.length > 0) {
-      html += `<div style="font-weight:700;font-size:13px;margin:12px 0 8px 0;color:var(--primary);">🎯 匹配的专题讲义 (${matchedLectures.length})</div>`;
-      html += matchedLectures.map(l => renderLectureCard(l)).join('');
-    }
+    // Render Matched Questions FIRST if searching for specific exam or question
+    const isSearchingExamOrQuestion = rawQuery.match(/\d{4}|\d{2}|数[一二三]|题\d|\d+\.\d+/);
 
-    // Render Matched Subtopics if not already covered
-    if (matchedSubtopics.length > 0) {
-      html += `<div style="font-weight:700;font-size:13px;margin:16px 0 8px 0;color:var(--accent-green);">📌 匹配的细分考点 (${matchedSubtopics.length})</div>`;
-      html += `<div class="lecture-card" style="padding:10px 14px;">`;
+    const questionsHtml = () => {
+      if (matchedQuestions.length === 0) return '';
+      let qHtml = `<div style="font-weight:700;font-size:13px;margin:16px 0 8px 0;color:var(--accent-orange);">📝 匹配的具体真题 (${matchedQuestions.length})</div>`;
+      qHtml += `<div class="lecture-card" style="padding:10px 14px;">`;
+      matchedQuestions.slice(0, 40).forEach(q => {
+        const lec = lectureMap[q.lecture_id] || {};
+        const qJumpUrl = `viewer.html?book=exercise&page=${q.doc2_page}&ref_book=lecture&ref_page=${q.doc1_page}&title=${encodeURIComponent('题' + q.code + ' ' + q.title)}`;
+        const lecJumpUrl = `viewer.html?book=lecture&page=${q.doc1_page}&ref_book=exercise&ref_page=${q.doc2_page}&title=${encodeURIComponent((lec.code || '') + ' ' + (lec.title || ''))}`;
+        
+        qHtml += `
+          <div style="padding:10px 0;border-bottom:1px solid var(--border-color);display:flex;justify-content:space-between;align-items:center;gap:8px;">
+            <div style="flex:1;">
+              <div style="display:flex;align-items:center;gap:6px;margin-bottom:3px;">
+                <span style="font-weight:700;color:var(--primary);font-size:12px;">题${q.code}</span>
+                <span style="font-size:12px;font-weight:600;color:var(--text-primary);">${q.exam}</span>
+                <span class="q-stars">${q.stars || ''}</span>
+              </div>
+              <div style="font-size:12px;color:var(--text-secondary);line-height:1.3;">
+                ${q.title}
+                <span style="font-size:11px;color:var(--text-muted);margin-left:4px;">(${lec.code || ''} ${lec.title || ''})</span>
+              </div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:4px;flex-shrink:0;">
+              <a class="btn-jump btn-exercise" style="padding:4px 8px;font-size:11px;" href="${qJumpUrl}">
+                📝 题目 P${q.doc2_page}
+              </a>
+              <a class="btn-jump btn-lecture" style="padding:4px 8px;font-size:11px;" href="${lecJumpUrl}">
+                📖 讲义 P${q.doc1_page}
+              </a>
+            </div>
+          </div>
+        `;
+      });
+      if (matchedQuestions.length > 40) {
+        qHtml += `<div style="font-size:11px;color:var(--text-muted);text-align:center;padding:8px 0;">已展示前 40 道，可输入更精准关键词查看</div>`;
+      }
+      qHtml += `</div>`;
+      return qHtml;
+    };
+
+    const lecturesHtml = () => {
+      if (matchedLectures.length === 0) return '';
+      let lHtml = `<div style="font-weight:700;font-size:13px;margin:12px 0 8px 0;color:var(--primary);">🎯 匹配的专题讲义 (${matchedLectures.length})</div>`;
+      lHtml += matchedLectures.map(l => renderLectureCard(l)).join('');
+      return lHtml;
+    };
+
+    const subtopicsHtml = () => {
+      if (matchedSubtopics.length === 0) return '';
+      let sHtml = `<div style="font-weight:700;font-size:13px;margin:16px 0 8px 0;color:var(--accent-green);">📌 匹配的细分考点 (${matchedSubtopics.length})</div>`;
+      sHtml += `<div class="lecture-card" style="padding:10px 14px;">`;
       matchedSubtopics.slice(0, 20).forEach(item => {
         const { sub, lecture } = item;
         const subLectureUrl = `viewer.html?book=lecture&page=${sub.doc1_page}&ref_book=exercise&ref_page=${sub.doc2_page}&title=${encodeURIComponent(sub.code + ' ' + sub.title)}`;
         const subExerciseUrl = `viewer.html?book=exercise&page=${sub.doc2_page}&ref_book=lecture&ref_page=${sub.doc1_page}&title=${encodeURIComponent(sub.code + ' ' + sub.title)}`;
-        html += `
+        sHtml += `
           <div style="padding:8px 0;border-bottom:1px solid var(--border-color);display:flex;justify-content:space-between;align-items:center;">
             <div>
               <span style="font-weight:700;color:var(--primary);font-size:12px;">${sub.code}</span>
@@ -462,33 +604,19 @@
           </div>
         `;
       });
-      html += `</div>`;
-    }
+      sHtml += `</div>`;
+      return sHtml;
+    };
 
-    // Render Matched Questions
-    if (matchedQuestions.length > 0) {
-      html += `<div style="font-weight:700;font-size:13px;margin:16px 0 8px 0;color:var(--accent-orange);">📝 匹配的具体真题 (${matchedQuestions.length})</div>`;
-      html += `<div class="lecture-card" style="padding:10px 14px;">`;
-      matchedQuestions.slice(0, 30).forEach(q => {
-        const qJumpUrl = `viewer.html?book=exercise&page=${q.doc2_page}&ref_book=lecture&ref_page=${q.doc1_page}&title=${encodeURIComponent('题' + q.code + ' ' + q.title)}`;
-        html += `
-          <div style="padding:8px 0;border-bottom:1px solid var(--border-color);display:flex;justify-content:space-between;align-items:center;">
-            <div>
-              <span style="font-weight:700;color:var(--primary);font-size:12px;">题${q.code}</span>
-              <span style="font-size:12px;margin-left:4px;">${q.exam}</span>
-              <span style="font-weight:600;font-size:12px;margin-left:4px;">${q.title}</span>
-              <span class="q-stars">${q.stars}</span>
-            </div>
-            <a class="btn-jump btn-exercise" style="padding:4px 10px;font-size:11px;flex:none;" href="${qJumpUrl}">
-              打开真题P${q.doc2_page}
-            </a>
-          </div>
-        `;
-      });
-      if (matchedQuestions.length > 30) {
-        html += `<div style="font-size:11px;color:var(--text-muted);text-align:center;padding:8px 0;">已展示前 30 道，请输入更详细关键词精确匹配</div>`;
-      }
-      html += `</div>`;
+    // If searching for exam questions, prioritize Questions block at the top!
+    if (isSearchingExamOrQuestion) {
+      html += questionsHtml();
+      html += lecturesHtml();
+      html += subtopicsHtml();
+    } else {
+      html += lecturesHtml();
+      html += subtopicsHtml();
+      html += questionsHtml();
     }
 
     searchResultsArea.innerHTML = html;
