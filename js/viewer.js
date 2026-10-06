@@ -150,6 +150,7 @@
 
       currentPage = Math.max(1, Math.min(targetPage, totalPages));
       clearSlowTimer();
+      recordVisit();
       await renderPage(currentPage);
     } catch (err) {
       console.error('PDF load error:', err);
@@ -222,6 +223,25 @@
     }
   }
 
+  // Record recent visit in browser local storage
+  function recordVisit() {
+    try {
+      const key = 'maki_math_recent_history';
+      let history = JSON.parse(localStorage.getItem(key) || '[]');
+      const title = docTitle || bookNames[currentBook];
+      const currentUrl = window.location.href;
+      history = history.filter(h => h.title !== title && h.url !== currentUrl);
+      history.unshift({
+        type: currentBook,
+        title: title.slice(0, 30),
+        page: currentPage,
+        url: currentUrl
+      });
+      if (history.length > 8) history = history.slice(0, 8);
+      localStorage.setItem(key, JSON.stringify(history));
+    } catch (e) {}
+  }
+
   // Native Mode Rendering (Pure System Iframe)
   function renderNativeMode() {
     showLoading(false);
@@ -231,6 +251,7 @@
       const targetUrl = `${pdfPaths[currentBook]}#page=${currentPage}`;
       nativeFrame.src = targetUrl;
     }
+    recordVisit();
 
     totalPages = currentBook === 'lecture' ? 1105 : 1524;
     totalPagesEl.textContent = `/ ${totalPages}`;

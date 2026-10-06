@@ -1,4 +1,4 @@
-/* Mobile-First Modern Theme for Maki Math Study Hub */
+/* Mobile-First Modern Theme for Maki Math Search & Reference Index */
 :root {
   --bg-primary: #f8fafc;
   --bg-card: #ffffff;
@@ -59,7 +59,6 @@
   }
 }
 
-/* Explicit Dark Mode Overrides */
 body.dark-theme {
   --bg-primary: #090d16;
   --bg-card: #131b2e;
@@ -99,7 +98,7 @@ body {
   padding-bottom: 70px;
 }
 
-/* App Header */
+/* App Header - Search Engine Style */
 .app-header {
   position: sticky;
   top: 0;
@@ -108,7 +107,7 @@ body {
   border-bottom: 1px solid var(--border-color);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  padding: 12px 16px;
+  padding: 12px 16px 10px 16px;
   box-shadow: var(--shadow-sm);
 }
 
@@ -116,7 +115,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
 }
 
 .app-title-group {
@@ -126,11 +125,12 @@ body {
 }
 
 .app-logo {
-  font-size: 20px;
+  font-size: 19px;
   background: linear-gradient(135deg, #2563eb, #8b5cf6);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   font-weight: 800;
+  letter-spacing: -0.5px;
 }
 
 .app-subtitle {
@@ -148,14 +148,14 @@ body {
   background: var(--bg-card-hover);
   border: 1px solid var(--border-color);
   color: var(--text-secondary);
-  width: 34px;
-  height: 34px;
+  width: 32px;
+  height: 32px;
   border-radius: var(--radius-full);
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  font-size: 15px;
+  font-size: 14px;
   transition: all 0.2s;
 }
 
@@ -165,7 +165,7 @@ body {
   border-color: var(--primary);
 }
 
-/* Search Box */
+/* Prominent Search Box */
 .search-wrapper {
   position: relative;
   display: flex;
@@ -174,21 +174,22 @@ body {
 
 .search-icon {
   position: absolute;
-  left: 12px;
-  color: var(--text-muted);
+  left: 14px;
+  color: var(--primary);
   font-size: 15px;
   pointer-events: none;
 }
 
 .search-input {
   width: 100%;
-  height: 40px;
-  padding: 0 38px 0 36px;
+  height: 44px;
+  padding: 0 38px 0 38px;
   background: var(--bg-primary);
   border: 1.5px solid var(--border-color);
   border-radius: var(--radius-full);
   color: var(--text-primary);
   font-size: 14px;
+  font-weight: 500;
   transition: all 0.2s;
   outline: none;
 }
@@ -201,7 +202,7 @@ body {
 
 .search-clear {
   position: absolute;
-  right: 10px;
+  right: 12px;
   background: none;
   border: none;
   color: var(--text-muted);
@@ -215,9 +216,49 @@ body {
   border-radius: var(--radius-full);
 }
 
-/* Quick Filter Pills */
+/* Hot Search Suggestion Tags */
+.hot-search-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  overflow-x: auto;
+  white-space: nowrap;
+  scrollbar-width: none;
+  font-size: 12px;
+}
+.hot-search-row::-webkit-scrollbar {
+  display: none;
+}
+
+.hot-label {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.hot-tag {
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  font-size: 11px;
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.15s;
+}
+
+.hot-tag:hover, .hot-tag:active {
+  background: var(--primary-light);
+  color: var(--primary);
+  border-color: var(--primary);
+}
+
+/* Quick Filter Container */
 .filter-container {
-  padding: 10px 16px;
+  padding: 8px 16px;
   background: var(--bg-card);
   border-bottom: 1px solid var(--border-color);
   overflow-x: auto;
@@ -230,7 +271,7 @@ body {
 
 .filter-row {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   align-items: center;
 }
 
@@ -238,15 +279,14 @@ body {
   font-size: 11px;
   font-weight: 700;
   color: var(--text-muted);
-  margin-right: 4px;
-  text-transform: uppercase;
+  margin-right: 2px;
 }
 
 .chip {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 5px 12px;
+  padding: 4px 10px;
   border-radius: var(--radius-full);
   font-size: 12px;
   font-weight: 500;
@@ -285,9 +325,70 @@ body {
   border-color: #475569;
 }
 
-/* Status / Alert Banner */
+/* Recent History Box */
+.recent-history-section {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  margin: 12px 16px 0 16px;
+  padding: 10px 14px;
+  box-shadow: var(--shadow-sm);
+}
+
+.recent-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.recent-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.recent-clear {
+  background: none;
+  border: none;
+  font-size: 11px;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.recent-chips-flow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.recent-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  text-decoration: none;
+  transition: all 0.15s;
+}
+
+.recent-chip:hover {
+  background: var(--primary-light);
+  color: var(--primary);
+  border-color: var(--primary);
+}
+
+/* Status Banner */
 .status-banner {
-  margin: 12px 16px 4px 16px;
+  margin: 10px 16px 0 16px;
   padding: 10px 14px;
   border-radius: var(--radius-md);
   font-size: 12px;
@@ -314,9 +415,45 @@ body.dark-theme .banner-math2 {
   padding: 12px 16px;
 }
 
+/* Search Categories (三段式分流) */
+.search-category-block {
+  margin-bottom: 20px;
+}
+
+.search-cat-title {
+  font-size: 13px;
+  font-weight: 700;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.search-cat-title.cat-lecture {
+  color: var(--primary);
+}
+
+.search-cat-title.cat-exercise {
+  color: var(--accent-orange);
+}
+
+.search-cat-title.cat-subtopic {
+  color: var(--accent-green);
+}
+
+/* Breadcrumb Trail */
+.breadcrumb-trail {
+  font-size: 11px;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 2px;
+}
+
 /* Part Header */
 .part-group {
-  margin-bottom: 24px;
+  margin-bottom: 20px;
 }
 
 .part-header {
@@ -351,7 +488,7 @@ body.dark-theme .banner-math2 {
   background: var(--bg-card);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
-  margin-bottom: 12px;
+  margin-bottom: 10px;
   box-shadow: var(--shadow-sm);
   overflow: hidden;
   transition: all 0.2s;
@@ -376,7 +513,7 @@ body.dark-theme .banner-math2 {
   cursor: pointer;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 
 .card-top-row {
@@ -510,7 +647,7 @@ body.dark-theme .banner-math2 {
 
 /* Summary text */
 .lec-summary-box {
-  padding: 8px 14px 12px 14px;
+  padding: 8px 14px 10px 14px;
   font-size: 12px;
   color: var(--text-secondary);
   line-height: 1.5;
@@ -643,49 +780,11 @@ body.dark-theme .banner-math2 {
 /* Empty State */
 .empty-state {
   text-align: center;
-  padding: 48px 16px;
+  padding: 36px 16px;
   color: var(--text-muted);
 }
 
 .empty-icon {
   font-size: 36px;
   margin-bottom: 8px;
-}
-
-/* Floating Bottom Navigation for Phone */
-.floating-bottom-bar {
-  position: fixed;
-  bottom: 12px;
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex;
-  gap: 8px;
-  background: var(--bg-card);
-  padding: 6px 12px;
-  border-radius: var(--radius-full);
-  border: 1px solid var(--border-color);
-  box-shadow: var(--shadow-lg);
-  z-index: 90;
-  backdrop-filter: blur(8px);
-}
-
-.pill-btn {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 14px;
-  border-radius: var(--radius-full);
-  font-size: 12px;
-  font-weight: 600;
-  border: none;
-  cursor: pointer;
-  background: var(--bg-card-hover);
-  color: var(--text-primary);
-  text-decoration: none;
-  transition: all 0.2s;
-}
-
-.pill-btn.primary {
-  background: var(--primary);
-  color: #ffffff;
 }
