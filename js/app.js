@@ -13,7 +13,8 @@
     tagFilter: 'all',       // 'all' | 'top_diff' | 'key' | 'zero' | 'math1_only'
     searchQuery: '',
     data: window.MAKI_MATH_DATA || null,
-    expandedLectures: new Set()
+    expandedLectures: new Set(),
+    collapsedLectures: new Set()
   };
 
   // DOM Elements
@@ -224,6 +225,9 @@
         viewChips.forEach(c => c.classList.remove('active'));
         chip.classList.add('active');
         state.viewPerspective = chip.dataset.view;
+        state.expandedLectures.clear();
+        state.collapsedLectures.clear();
+        updateStatusBanner();
         handleSearchOrFilter();
       });
     });
@@ -245,6 +249,7 @@
         tagChips.forEach(c => c.classList.remove('active'));
         chip.classList.add('active');
         state.tagFilter = chip.dataset.tag;
+        updateStatusBanner();
         handleSearchOrFilter();
       });
     });
@@ -276,6 +281,25 @@
 
   function updateStatusBanner() {
     if (!statusBanner) return;
+    statusBanner.removeAttribute('style');
+
+    if (state.viewPerspective === 'exercise') {
+      statusBanner.style.display = 'flex';
+      statusBanner.className = 'status-banner banner-exercise';
+      statusBanner.innerHTML = `
+        <span>📝</span>
+        <div><strong>【仅真题分类精解视角】</strong>：全书 845 道历年真题已全面就绪，无真题章节已自动折叠，点击题号直接翻到原题与解析。</div>
+      `;
+      return;
+    } else if (state.viewPerspective === 'lecture') {
+      statusBanner.style.display = 'flex';
+      statusBanner.className = 'status-banner banner-lecture';
+      statusBanner.innerHTML = `
+        <span>📖</span>
+        <div><strong>【仅大串讲讲义视角】</strong>：专注全书 66 讲知识体系、解题决策树与避坑指南，真题列表已折叠收起。</div>
+      `;
+      return;
+    }
 
     if (state.examFilter === 'math2') {
       statusBanner.style.display = 'flex';
@@ -286,16 +310,14 @@
       `;
     } else if (state.examFilter === 'math1') {
       statusBanner.style.display = 'flex';
-      statusBanner.className = 'status-banner';
-      statusBanner.style.background = 'var(--accent-purple-light)';
-      statusBanner.style.color = 'var(--accent-purple)';
-      statusBanner.style.border = '1px solid rgba(139, 92, 246, 0.3)';
+      statusBanner.className = 'status-banner banner-math1';
       statusBanner.innerHTML = `
         <span>📌</span>
         <div><strong>【数学一全科模式】</strong>：重点涵盖概率统计、曲线曲面积分、无穷级数与二次型。</div>
       `;
     } else {
       statusBanner.style.display = 'none';
+      statusBanner.className = 'status-banner';
     }
   }
 
@@ -546,6 +568,14 @@
 
       if (filteredLectures.length === 0) return;
 
+      const partTotalQuestions = filteredLectures.reduce((sum, l) => sum + (l.questions ? l.questions.length : 0), 0);
+      let badgeText = `${filteredLectures.length} 讲`;
+      if (state.viewPerspective === 'exercise') {
+        badgeText = `${filteredLectures.length} 讲 · ${partTotalQuestions} 道真题`;
+      } else if (state.viewPerspective === 'all') {
+        badgeText = `${filteredLectures.length} 讲 · ${partTotalQuestions} 题`;
+      }
+
       html += `
         <div class="part-group">
           <div class="part-header">
@@ -553,7 +583,7 @@
               <span>📂</span>
               <span>${part.title}</span>
             </div>
-            <div class="part-badge">${filteredLectures.length} 讲</div>
+            <div class="part-badge">${badgeText}</div>
           </div>
           <div class="part-lectures-list">
             ${filteredLectures.map(l => renderLectureCard(l)).join('')}
@@ -576,6 +606,8 @@
   }
 
   function matchFilters(lec) {
+    if (state.viewPerspective === 'exercise' && (!lec.questions || lec.questions.length === 0)) return false;
+
     if (state.tagFilter === 'top_diff' && !lec.has_top_diff) return false;
     if (state.tagFilter === 'key' && lec.tag !== '重点讲') return false;
     if (state.tagFilter === 'zero' && !lec.has_zero_exam) return false;
@@ -591,7 +623,14 @@
   // Render Lecture Card
   function renderLectureCard(lec) {
     const isMath2Skip = state.examFilter === 'math2' && lec.is_math2_skip;
-    const isExpanded = state.expandedLectures.has(lec.id);
+    const isExerciseView = state.viewPerspective === 'exercise';
+    const isLectureView = state.viewPerspective === 'lecture';
+
+    // In exercise view, cards default to open so users immediately see questions
+    const isExpanded = isExerciseView 
+      ? !state.collapsedLectures.has(lec.id)
+      : state.expandedLectures.has(lec.id);
+
     const hasTopDiff = lec.has_top_diff;
 
     let tagBadgeHtml = '';
@@ -611,12 +650,33 @@
       tagBadgeHtml += `<span class="badge badge-orange">数二跳过</span>`;
     }
 
-    const qCount = lec.questions.length;
+    const qCount = lec.questions ? lec.questions.length : 0;
     const lectureJumpUrl = `viewer.html?book=lecture&page=${lec.doc1_page}&ref_book=exercise&ref_page=${lec.doc2_page || 1}&title=${encodeURIComponent(lec.code + ' ' + lec.title)}`;
     const exerciseJumpUrl = `viewer.html?book=exercise&page=${lec.doc2_page || 1}&ref_book=lecture&ref_page=${lec.doc1_page}&title=${encodeURIComponent(lec.code + ' ' + lec.title)}`;
 
+    let lectureBtnClass = 'btn-lecture';
+    let exerciseBtnClass = 'btn-exercise';
+    let lectureBtnText = `讲义 P${lec.doc1_page}`;
+    let exerciseBtnText = `真题 P${lec.doc2_page || '-'} (${qCount}题)`;
+
+    if (isExerciseView) {
+      exerciseBtnClass = 'btn-exercise-primary';
+      exerciseBtnText = `真题直达 P${lec.doc2_page || '-'} (${qCount}题)`;
+      lectureBtnClass = 'btn-jump-secondary';
+      lectureBtnText = `讲义 P${lec.doc1_page}`;
+    } else if (isLectureView) {
+      lectureBtnClass = 'btn-lecture-primary';
+      lectureBtnText = `讲义直达 P${lec.doc1_page}`;
+      exerciseBtnClass = 'btn-jump-secondary';
+      exerciseBtnText = `真题 P${lec.doc2_page || '-'} (${qCount}题)`;
+    }
+
+    let cardExtraClass = '';
+    if (isExerciseView) cardExtraClass = 'view-exercise-card';
+    else if (isLectureView) cardExtraClass = 'view-lecture-card';
+
     return `
-      <div class="lecture-card ${isMath2Skip ? 'math2-skip' : ''} ${hasTopDiff ? 'has-top-diff' : ''}" id="lec-${lec.id}">
+      <div class="lecture-card ${isMath2Skip ? 'math2-skip' : ''} ${hasTopDiff ? 'has-top-diff' : ''} ${cardExtraClass}" id="lec-${lec.id}">
         <div class="lecture-header" data-id="${lec.id}">
           <div class="breadcrumb-trail">
             <span>${lec.part_title ? lec.part_title.split(' ')[0] : '考点'}</span>
@@ -635,13 +695,13 @@
           </div>
 
           <div class="card-actions-row">
-            <a class="btn-jump btn-lecture" href="${lectureJumpUrl}" title="${lec.code} ${lec.title}">
+            <a class="btn-jump ${lectureBtnClass}" href="${lectureJumpUrl}" title="${lec.code} ${lec.title}">
               <span>📖</span>
-              <span>讲义 P${lec.doc1_page}</span>
+              <span>${lectureBtnText}</span>
             </a>
-            <a class="btn-jump btn-exercise" href="${exerciseJumpUrl}" title="${lec.code} ${lec.title} 真题">
+            <a class="btn-jump ${exerciseBtnClass}" href="${exerciseJumpUrl}" title="${lec.code} ${lec.title} 真题">
               <span>📝</span>
-              <span>真题 P${lec.doc2_page || '-'} (${qCount}题)</span>
+              <span>${exerciseBtnText}</span>
             </a>
             <button class="btn-expand-toggle" data-id="${lec.id}" title="展开考点与真题">
               ${isExpanded ? '▲' : '▼'}
@@ -652,60 +712,186 @@
         ${lec.summary ? `<div class="lec-summary-box">${lec.summary}</div>` : ''}
 
         <div class="card-details ${isExpanded ? 'open' : ''}" id="details-${lec.id}">
-          ${renderSubtopics(lec)}
+          ${renderCardDetails(lec)}
         </div>
       </div>
     `;
   }
 
-  function renderSubtopics(lec) {
-    if (!lec.subtopics || lec.subtopics.length === 0) {
-      return `<div style="font-size:12px;color:var(--text-muted);padding:4px 0;">该讲为总结综述讲，无细分考点编号</div>`;
-    }
+  function renderCardDetails(lec) {
+    const isExerciseView = state.viewPerspective === 'exercise';
+    const isLectureView = state.viewPerspective === 'lecture';
+    let html = '';
 
-    return lec.subtopics.map(sub => {
-      const subQuestions = lec.questions.filter(q => q.code.startsWith(sub.code));
-      const subLectureUrl = `viewer.html?book=lecture&page=${sub.doc1_page}&ref_book=exercise&ref_page=${sub.doc2_page}&title=${encodeURIComponent(sub.code + ' ' + sub.title)}`;
-      const subExerciseUrl = `viewer.html?book=exercise&page=${sub.doc2_page}&ref_book=lecture&ref_page=${sub.doc1_page}&title=${encodeURIComponent(sub.code + ' ' + sub.title)}`;
-
-      let diffBadge = '';
-      if (sub.is_top_diff) {
-        diffBadge = `<span class="badge badge-diff">难度 ${sub.diff_score}</span>`;
-      }
-      if (sub.is_zero_exam) {
-        diffBadge += `<span class="badge badge-gray">零命题</span>`;
-      }
-
-      return `
-        <div class="subtopic-item">
-          <div class="subtopic-header">
-            <div class="subtopic-title-box">
-              <span class="subtopic-code">${sub.code}</span>
-              <span class="subtopic-title">${sub.title}</span>
-              ${diffBadge}
-            </div>
-            <div class="subtopic-jump-links">
-              <a class="link-mini link-mini-green" href="${subLectureUrl}" title="大串讲 ${sub.title}">讲义P${sub.doc1_page}</a>
-              <a class="link-mini link-mini-blue" href="${subExerciseUrl}" title="真题 ${sub.title}">真题P${sub.doc2_page}</a>
-            </div>
+    // If Exercise View: prominently show all questions
+    if (isExerciseView) {
+      if (lec.subtopics && lec.subtopics.length > 0) {
+        html += `
+          <div class="card-subtopics-tags">
+            <span class="subtopics-label">📌 对应考点：</span>
+            ${lec.subtopics.map(s => `
+              <a class="subtopic-tag" href="viewer.html?book=lecture&page=${s.doc1_page}&ref_book=exercise&ref_page=${s.doc2_page}&title=${encodeURIComponent(s.code + ' ' + s.title)}" title="大串讲 ${s.title}">
+                ${s.code} ${s.title}
+              </a>
+            `).join('')}
           </div>
-          ${sub.diff_reason ? `<div style="font-size:11px;color:#dc2626;margin-bottom:4px;">💡 ${sub.diff_reason}</div>` : ''}
-          
-          <div class="questions-flow">
-            ${subQuestions.map(q => {
+        `;
+      }
+
+      if (lec.questions && lec.questions.length > 0) {
+        html += `
+          <div class="details-section-title details-exercise-title">
+            <span>📝</span>
+            <span>历年分类真题精解 (共 ${lec.questions.length} 题)</span>
+          </div>
+          <div class="questions-list">
+            ${lec.questions.map(q => {
               const qJumpUrl = `viewer.html?book=exercise&page=${q.doc2_page}&ref_book=lecture&ref_page=${q.doc1_page}&title=${encodeURIComponent('题' + q.code + ' ' + q.title)}`;
+              const lecJumpUrl = `viewer.html?book=lecture&page=${q.doc1_page}&ref_book=exercise&ref_page=${q.doc2_page}&title=${encodeURIComponent((lec.code || '') + ' ' + (lec.title || ''))}`;
               return `
-                <a class="q-chip" href="${qJumpUrl}" title="${q.exam} ${q.title}">
-                  <span>题${q.code}</span>
-                  <span class="q-stars">${q.stars || ''}</span>
-                  <span>P${q.doc2_page}</span>
-                </a>
+                <div class="q-item">
+                  <div class="q-item-info">
+                    <div class="q-item-header">
+                      <span class="q-code">题${q.code}</span>
+                      <span class="q-exam">${q.exam}</span>
+                      <span class="q-stars">${q.stars || ''}</span>
+                    </div>
+                    <div class="q-title">${q.title}</div>
+                  </div>
+                  <div class="q-item-actions">
+                    <a class="btn-jump btn-exercise-item" href="${qJumpUrl}" title="${q.exam} ${q.title}">
+                      📝 真题 P${q.doc2_page}
+                    </a>
+                    <a class="btn-jump btn-lecture-item" href="${lecJumpUrl}" title="讲义对应方法 P${q.doc1_page}">
+                      📖 讲义 P${q.doc1_page}
+                    </a>
+                  </div>
+                </div>
               `;
             }).join('')}
           </div>
+        `;
+      } else {
+        html += `<div style="font-size:12px;color:var(--text-muted);padding:8px 0;">该讲暂无收录历年真题</div>`;
+      }
+      return html;
+    }
+
+    // If Lecture View: show subtopics and notes, omit questions
+    if (isLectureView) {
+      if (!lec.subtopics || lec.subtopics.length === 0) {
+        return `<div style="font-size:12px;color:var(--text-muted);padding:4px 0;">该讲为全篇总结综述讲，点击顶部【讲义 P${lec.doc1_page}】即可直接阅读</div>`;
+      }
+
+      html += `
+        <div class="details-section-title details-lecture-title">
+          <span>📖</span>
+          <span>大串讲核心知识体系与考点方法 (${lec.subtopics.length} 节)</span>
         </div>
       `;
-    }).join('');
+
+      html += lec.subtopics.map(sub => {
+        const subLectureUrl = `viewer.html?book=lecture&page=${sub.doc1_page}&ref_book=exercise&ref_page=${sub.doc2_page}&title=${encodeURIComponent(sub.code + ' ' + sub.title)}`;
+        const subExerciseUrl = `viewer.html?book=exercise&page=${sub.doc2_page}&ref_book=lecture&ref_page=${sub.doc1_page}&title=${encodeURIComponent(sub.code + ' ' + sub.title)}`;
+        let diffBadge = '';
+        if (sub.is_top_diff) diffBadge = `<span class="badge badge-diff">难度 ${sub.diff_score}</span>`;
+        if (sub.is_zero_exam) diffBadge += `<span class="badge badge-gray">零命题</span>`;
+
+        return `
+          <div class="subtopic-item">
+            <div class="subtopic-header">
+              <div class="subtopic-title-box">
+                <span class="subtopic-code">${sub.code}</span>
+                <span class="subtopic-title">${sub.title}</span>
+                ${diffBadge}
+              </div>
+              <div class="subtopic-jump-links">
+                <a class="link-mini link-mini-green" href="${subLectureUrl}" title="大串讲 ${sub.title}">讲义P${sub.doc1_page}</a>
+                <a class="link-mini link-mini-blue" href="${subExerciseUrl}" title="真题 ${sub.title}">真题P${sub.doc2_page}</a>
+              </div>
+            </div>
+            ${sub.diff_reason ? `<div style="font-size:11px;color:#dc2626;margin-top:2px;">💡 ${sub.diff_reason}</div>` : ''}
+          </div>
+        `;
+      }).join('');
+
+      return html;
+    }
+
+    // Default "All" View: show both subtopics and questions
+    if (lec.subtopics && lec.subtopics.length > 0) {
+      html += `
+        <div class="details-section-title details-lecture-title">
+          <span>📖</span>
+          <span>考点分节与方法导航</span>
+        </div>
+      `;
+      html += lec.subtopics.map(sub => {
+        const subLectureUrl = `viewer.html?book=lecture&page=${sub.doc1_page}&ref_book=exercise&ref_page=${sub.doc2_page}&title=${encodeURIComponent(sub.code + ' ' + sub.title)}`;
+        const subExerciseUrl = `viewer.html?book=exercise&page=${sub.doc2_page}&ref_book=lecture&ref_page=${sub.doc1_page}&title=${encodeURIComponent(sub.code + ' ' + sub.title)}`;
+        let diffBadge = '';
+        if (sub.is_top_diff) diffBadge = `<span class="badge badge-diff">难度 ${sub.diff_score}</span>`;
+        if (sub.is_zero_exam) diffBadge += `<span class="badge badge-gray">零命题</span>`;
+
+        return `
+          <div class="subtopic-item">
+            <div class="subtopic-header">
+              <div class="subtopic-title-box">
+                <span class="subtopic-code">${sub.code}</span>
+                <span class="subtopic-title">${sub.title}</span>
+                ${diffBadge}
+              </div>
+              <div class="subtopic-jump-links">
+                <a class="link-mini link-mini-green" href="${subLectureUrl}" title="大串讲 ${sub.title}">讲义P${sub.doc1_page}</a>
+                <a class="link-mini link-mini-blue" href="${subExerciseUrl}" title="真题 ${sub.title}">真题P${sub.doc2_page}</a>
+              </div>
+            </div>
+            ${sub.diff_reason ? `<div style="font-size:11px;color:#dc2626;margin-top:2px;">💡 ${sub.diff_reason}</div>` : ''}
+          </div>
+        `;
+      }).join('');
+    }
+
+    if (lec.questions && lec.questions.length > 0) {
+      html += `
+        <div class="details-section-title details-exercise-title" style="margin-top: 10px;">
+          <span>📝</span>
+          <span>历年分类真题精解 (${lec.questions.length} 题)</span>
+        </div>
+        <div class="questions-list">
+          ${lec.questions.map(q => {
+            const qJumpUrl = `viewer.html?book=exercise&page=${q.doc2_page}&ref_book=lecture&ref_page=${q.doc1_page}&title=${encodeURIComponent('题' + q.code + ' ' + q.title)}`;
+            const lecJumpUrl = `viewer.html?book=lecture&page=${q.doc1_page}&ref_book=exercise&ref_page=${q.doc2_page}&title=${encodeURIComponent((lec.code || '') + ' ' + (lec.title || ''))}`;
+            return `
+              <div class="q-item">
+                <div class="q-item-info">
+                  <div class="q-item-header">
+                    <span class="q-code">题${q.code}</span>
+                    <span class="q-exam">${q.exam}</span>
+                    <span class="q-stars">${q.stars || ''}</span>
+                  </div>
+                  <div class="q-title">${q.title}</div>
+                </div>
+                <div class="q-item-actions">
+                  <a class="btn-jump btn-exercise-item" href="${qJumpUrl}" title="${q.exam} ${q.title}">
+                    📝 真题 P${q.doc2_page}
+                  </a>
+                  <a class="btn-jump btn-lecture-item" href="${lecJumpUrl}" title="讲义对应方法 P${q.doc1_page}">
+                    📖 讲义 P${q.doc1_page}
+                  </a>
+                </div>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      `;
+    }
+
+    if (!html) {
+      html = `<div style="font-size:12px;color:var(--text-muted);padding:4px 0;">该讲为全篇总结综述讲，点击顶部【讲义 P${lec.doc1_page}】即可直接阅读</div>`;
+    }
+
+    return html;
   }
 
   function bindCardDynamicEvents(container) {
@@ -713,21 +899,39 @@
     expandToggles.forEach(btn => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
-        const id = parseInt(btn.dataset.id);
-        const details = document.getElementById(`details-${id}`);
-        if (!details) return;
-
-        if (state.expandedLectures.has(id)) {
-          state.expandedLectures.delete(id);
-          details.classList.remove('open');
-          btn.textContent = '▼';
-        } else {
-          state.expandedLectures.add(id);
-          details.classList.add('open');
-          btn.textContent = '▲';
-        }
+        toggleLectureAccordion(btn.dataset.id);
       });
     });
+
+    const headers = container.querySelectorAll('.lecture-header');
+    headers.forEach(header => {
+      header.addEventListener('click', (e) => {
+        if (e.target.closest('a') || e.target.closest('button')) return;
+        toggleLectureAccordion(header.dataset.id);
+      });
+    });
+  }
+
+  function toggleLectureAccordion(rawId) {
+    const id = parseInt(rawId);
+    if (!id) return;
+    const details = document.getElementById(`details-${id}`);
+    const card = document.getElementById(`lec-${id}`);
+    const btn = card ? card.querySelector('.btn-expand-toggle') : null;
+    if (!details) return;
+
+    const isOpen = details.classList.contains('open');
+    if (isOpen) {
+      details.classList.remove('open');
+      if (btn) btn.textContent = '▼';
+      state.expandedLectures.delete(id);
+      state.collapsedLectures.add(id);
+    } else {
+      details.classList.add('open');
+      if (btn) btn.textContent = '▲';
+      state.expandedLectures.add(id);
+      state.collapsedLectures.delete(id);
+    }
   }
 
   // Initialize
